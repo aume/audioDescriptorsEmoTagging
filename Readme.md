@@ -2,6 +2,13 @@
 
 This project implements a comprehensive pipeline for analyzing audio, predicting their Valence and Arousal and HLD escriptor dimensions using machine learning, and then tagging them with specific HLD descriptors based on these predictions. Finally, all results, including raw features, predicted scores, and descriptor tags, are logged into a relational SQLite database for easy querying and analysis.
 
+https://www.metacreation.net/projects/emo-soundscapes/
+
+A Survey of High-Level Descriptors in Sound Design: Understanding the Key Audio Aesthetics Towards Developing Generative Game Audio Engines. C Anderson, C Carpenter, J Kranabetter, M Thorogood - Audio Engineering Society Conference: AES 2024
+
+
+https://saifmohammad.com/WebPages/nrc-vad.html
+
 ## Overview
 
 The system processes audio files in a multi-stage pipeline:
