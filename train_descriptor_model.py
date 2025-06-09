@@ -132,6 +132,8 @@ def train_descriptor_model(X, Y, descriptor_name):
     print(f"Total samples for training: {len(X)}")
     print(f"Number of features being used: {X.shape[1]}")
 
+    all_original_feature_names = X.columns.tolist() # Store all original feature names
+
     # Split data into training and testing sets
     X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
 
@@ -190,8 +192,12 @@ def train_descriptor_model(X, Y, descriptor_name):
         # Save the trained model
         # Replace spaces and slashes in descriptor name for a valid filename
         model_filename = f"trained_descriptor_{descriptor_name.replace(' ', '_').replace('/', '_')}_model.joblib"
-        joblib.dump(regr_pipeline, MODEL_PATH+model_filename)
-        print(f"Trained model saved as '{model_filename}'")
+        model_and_features_to_save = { # Save this dictionary
+            'model': regr_pipeline,
+            'all_original_features': all_original_feature_names
+        }
+        joblib.dump(model_and_features_to_save, MODEL_PATH+model_filename) # Save the model
+        print(f"Trained model and original feature list saved as '{model_filename}'")
 
     except Exception as e:
         print(f"An error occurred during model training, evaluation, or plotting: {e}")

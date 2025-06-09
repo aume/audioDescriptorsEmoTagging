@@ -91,6 +91,3 @@ Before running the system, ensure you have the following installed:
     * **Ubuntu/Debian**: `sudo apt-get install ffmpeg`
     * **Windows**: Download from [FFmpeg website](https://ffmpeg.org/download.html) and add to PATH.
 
-## Dataset Structure
-
-The system expects a specific directory structure for your data. You should place your dataset files as follows (relative to where you run `main.py` and `predict_new_audio.py`):
