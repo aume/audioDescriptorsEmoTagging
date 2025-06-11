@@ -18,6 +18,10 @@ The system processes audio files in a multi-stage pipeline:
 4.  **Descriptor Tagging**: Based on the predicted Valence and Arousal, a custom algorithm calculates localized scores for predefined emotional descriptor pairs (e.g., "soothing/alarming", "happy/sad").
 5.  **Database Logging**: All extracted features, predicted VA scores, and descriptor scores are systematically stored in a SQLite database.
 
+
+## Pipeline execution order
+train_emo_model.py (V&A) -> predict_new_audio.py (new corpus) -> log_predictions_to_db.py -> train_and_visualize_all_descriptors.py -> predict_batch_descriptor.py (dir) | predict_descriptor_value.py (single)
+
 ## System Components
 
 The project is modularized into several Python scripts for clarity and maintainability:

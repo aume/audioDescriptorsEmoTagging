@@ -8,13 +8,14 @@ from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.feature_selection import SelectKBest, f_regression
-from sklearn.metrics import r2_score # Only R2 is needed for visualization
+from sklearn.metrics import r2_score
 
 # --- Configuration ---
 DATABASE_NAME = './datasets/audio_predictions.db'
-MODEL_PATH = './trained_models/'
 # Random state used for splitting data during descriptor model training
-DESCRIPTOR_MODEL_RANDOM_STATE = 42 
+DESCRIPTOR_MODEL_RANDOM_STATE = 42
+# Directory to save all trained descriptor models
+MODELS_SAVE_DIR = './trained_models/'
 
 def get_available_descriptors(db_name):
     """
@@ -112,14 +113,16 @@ def load_data_for_descriptor(db_name, selected_descriptor):
         if conn:
             conn.close()
 
-def train_descriptor_model_and_get_r2(X, Y, descriptor_name):
+def train_descriptor_model_and_get_r2(X, Y, descriptor_name, save_dir):
     """
-    Trains an SVR model for the given descriptor and returns its R2 score.
-    Does NOT save the model or plot individually.
+    Trains an SVR model for the given descriptor, saves the model, and returns its R2 score.
     """
     if X.empty or Y.empty or len(X) < 2:
         print(f"  Skipping '{descriptor_name}': Not enough data to train the model. Need at least 2 samples.")
         return None
+
+    # Store all original feature names (before SelectKBest) for later use in prediction
+    all_original_feature_names = X.columns.tolist() 
 
     # Split data using the consistent random_state
     X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.2, random_state=DESCRIPTOR_MODEL_RANDOM_STATE)
@@ -131,13 +134,24 @@ def train_descriptor_model_and_get_r2(X, Y, descriptor_name):
     regr_pipeline = Pipeline([
         ('scaler', StandardScaler()),              
         ('selector', SelectKBest(f_regression, k=k_features)), 
-        ('svr', SVR(C=0.4, epsilon=0.001))          
+        ('svr', SVR(C=0.4, epsilon=0.01))          
     ])
 
     try:
         regr_pipeline.fit(X_train, y_train)
         y_pred = regr_pipeline.predict(X_test)
         r2 = r2_score(y_test, y_pred)
+
+        # --- NEW FUNCTIONALITY: Save the trained model ---
+        model_filename = f"trained_descriptor_{descriptor_name.replace(' ', '_').replace('/', '_')}_model.joblib"
+        model_full_path = os.path.join(save_dir, model_filename)
+        model_and_features_to_save = {
+            'model': regr_pipeline,
+            'all_original_features': all_original_feature_names
+        }
+        joblib.dump(model_and_features_to_save, model_full_path)
+        print(f"  Trained model saved as '{model_full_path}'")
+
         return r2
 
     except Exception as e:
@@ -146,6 +160,10 @@ def train_descriptor_model_and_get_r2(X, Y, descriptor_name):
 
 if __name__ == "__main__":
     print("--- Automated Descriptor Model Training and R2 Visualization ---")
+
+    # Ensure the models save directory exists
+    os.makedirs(MODELS_SAVE_DIR, exist_ok=True)
+    print(f"Models will be saved in: '{MODELS_SAVE_DIR}'")
 
     # Check if the database exists
     if not os.path.exists(DATABASE_NAME):
@@ -173,8 +191,8 @@ if __name__ == "__main__":
         X_data, Y_data = load_data_for_descriptor(DATABASE_NAME, descriptor)
 
         if X_data is not None and Y_data is not None:
-            # Train model and get R2 score
-            r2 = train_descriptor_model_and_get_r2(X_data, Y_data, descriptor)
+            # Train model, get R2 score, and save the model
+            r2 = train_descriptor_model_and_get_r2(X_data, Y_data, descriptor, MODELS_SAVE_DIR)
             if r2 is not None:
                 all_r2_scores[descriptor] = r2
                 print(f"  R2 score for '{descriptor}': {r2:.3f}")
@@ -191,7 +209,8 @@ if __name__ == "__main__":
     else:
         model_names = list(all_r2_scores.keys())
         r2_values = list(all_r2_scores.values())
-
+        print(model_names)
+        print(r2_values)
         # Sort descriptors by R2 value for better readability in the plot
         sorted_indices = sorted(range(len(r2_values)), key=lambda k: r2_values[k], reverse=True)
         sorted_model_names = [model_names[i] for i in sorted_indices]

@@ -4,23 +4,25 @@ import joblib
 import numpy as np
 
 # Make sure these are accessible (e.g., in the same directory or correctly imported from a package)
-from extractor import Extractor # Your feature extractor
+from extractor import Extractor # feature extractor
 from va_data_loader import load_vad_lexicon, load_descriptor_pairs
 from va_analyzer import perform_descriptor_analysis
 
 # --- Configuration ---
-# Paths to your saved models (from main.py)
-VALENCE_MODEL_PATH = "trained_valence_model.joblib" # Updated name to match saving in main.py
-AROUSAL_MODEL_PATH = "trained_arousal_model.joblib" # Update if you save arousal separately
+# Paths to  saved models 
+VALENCE_MODEL_PATH = "./trained_models/trained_valence_model.joblib" # Updated name to match saving in main.py
+AROUSAL_MODEL_PATH = "./trained_models/trained_arousal_model.joblib" # Update if you save arousal separately
 
 # Path to the folder containing the new audio files you want to analyze
-NEW_AUDIO_FOLDER = "../datasets/HLD_corpus/" # IMPORTANT: put your new .wav files here!
+NEW_AUDIO_FOLDER = "./datasets/HLD_corpus/" # IMPORTANT: put  new .wav files here!
 
-# Paths to your VAD lexicon and descriptor pairs (same as in main.py)
-VAD_LEXICON_DIR = "../datasets/NRC-VAD-Lexicon-v2.1/OneFilePerDimension"
+# Paths to VAD lexicon and descriptor pairs (same as in main.py)
+VAD_LEXICON_DIR = "./datasets/NRC-VAD-Lexicon-v2.1/OneFilePerDimension"
 AROUSAL_LEXICON_PATH = os.path.join(VAD_LEXICON_DIR, "arousal-NRC-VAD-Lexicon-v2.1.txt")
 VALENCE_LEXICON_PATH = os.path.join(VAD_LEXICON_DIR, "valence-NRC-VAD-Lexicon-v2.1.txt")
-DESCRIPTOR_PAIRS_PATH = "../datasets/descriptorPairs.txt"
+DESCRIPTOR_PAIRS_PATH = "./datasets/descriptorPairs.txt"
+
+DATASETS_DIR = "./datasets/"
 
 # Feature extraction parameters (MUST be the same as during training)
 FRAME_SIZE = 2048
@@ -93,7 +95,7 @@ if __name__ == "__main__":
     # Assign the collected filenames as a new 'file' column
     new_features_raw_df['file'] = new_audio_filenames
     
-    new_features_raw_df.to_csv("new_audio_features_raw.csv", index=False)
+    new_features_raw_df.to_csv(DATASETS_DIR+"new_audio_features_raw.csv", index=False)
     print("Raw extracted features saved to 'new_audio_features_raw.csv'")
     
     print(f"Extracted features for {len(new_features_raw_df)} new audio files.")
@@ -141,7 +143,7 @@ if __name__ == "__main__":
         'valence': predicted_valence,
         'arousal': predicted_arousal
     })
-    predicted_va_df.to_csv("new_audio_predicted_va.csv", index=False)
+    predicted_va_df.to_csv(DATASETS_DIR+"new_audio_predicted_va.csv", index=False)
     print("Predicted VA scores saved to 'new_audio_predicted_va.csv'")
     print("\nPredicted VA Points (first 5):")
     print(predicted_va_df.head())
@@ -165,7 +167,7 @@ if __name__ == "__main__":
         
         # Save results to CSV
         output_csv_path = "new_audio_descriptor_scores.csv"
-        descriptor_results_df.to_csv(output_csv_path, index=False)
+        descriptor_results_df.to_csv(DATASETS_DIR+output_csv_path, index=False)
         print(f"\nDetailed descriptor scores saved to '{output_csv_path}'")
     else:
         print("Skipping descriptor analysis due to missing VA predictions or descriptor pairs.")

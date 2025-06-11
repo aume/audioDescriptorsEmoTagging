@@ -4,10 +4,10 @@ import joblib
 import numpy as np
 
 # Make sure these are accessible (e.g., in the same directory or correctly imported)
-from extractor import Extractor # Your feature extractor
+from extractor import Extractor #  feature extractor
 
 # --- Configuration ---
-# Path to your models directory (if you store them in a subfolder)
+# Path to  models directory (if you store them in a subfolder)
 MODELS_DIR = './trained_models' # Assuming models are in the current directory as per previous scripts
 
 # Feature extraction parameters (MUST be the same as during training)
@@ -79,7 +79,7 @@ if __name__ == "__main__":
 
     if not features_for_prediction.columns.equals(pd.Index(all_original_features_list)):
         print("Warning: Feature columns mismatch after preparation for prediction.")
-        # This warning might indicate an issue with your Extractor's consistency
+        # This warning might indicate an issue with  Extractor's consistency
 
     # --- 4. Make Prediction ---
     print("\nMaking prediction...")

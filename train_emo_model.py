@@ -34,17 +34,17 @@ build_dataset = True
 # Uncomment one block at a time to train each model:
 
 # For Valence training:
-va_file = './datasets/out_Valence.csv'
-df_ratings_path = "./datasets/Emo-Soundscapes/Emo-Soundscapes-Ratings/Valence.csv"
-model_output_name = "./trained_models/trained_valence_model.joblib"
-print("--- Configuring for Valence Model Training ---")
+# va_file = './datasets/out_Valence.csv'
+# df_ratings_path = "./datasets/Emo-Soundscapes/Emo-Soundscapes-Ratings/Valence.csv"
+# model_output_name = "./trained_models/trained_valence_model.joblib"
+# print("--- Configuring for Valence Model Training ---")
 
 
 # For Arousal training:
-# va_file = '../datasets/out_Arousal.csv'
-# df_ratings_path = "../datasets/Emo-Soundscapes/Emo-Soundscapes-Ratings/Arousal.csv"
-# model_output_name = "./trained_models/trained_arousal_model.joblib"
-# print("--- Configuring for Arousal Model Training ---")
+va_file = './datasets/out_Arousal.csv'
+df_ratings_path = "./datasets/Emo-Soundscapes/Emo-Soundscapes-Ratings/Arousal.csv"
+model_output_name = "./trained_models/trained_arousal_model.joblib"
+print("--- Configuring for Arousal Model Training ---")
 
 
 audioFolder = "./datasets/Emo-Soundscapes/Emo-Soundscapes-Audio/600_Sounds/All/"
@@ -136,7 +136,7 @@ k_features = min(150, X.shape[1])
 regr = Pipeline([ # CHANGED: Use Pipeline directly
     ('scaler', StandardScaler()),              # Name the scaler 'scaler'
     ('selector', SelectKBest(f_regression, k=k_features)), # Name the selector 'selector'
-    ('svr', SVR(C=0.4, epsilon=0.1))          # Name the SVR 'svr'
+    ('svr', SVR(C=0.4, epsilon=0.01))          # Name the SVR 'svr'
 ])
 
 regr.fit(X_train, y_train)

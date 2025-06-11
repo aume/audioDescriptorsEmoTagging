@@ -42,8 +42,8 @@ def perform_descriptor_analysis(input_va_points_df, descriptor_pairs):
                 target_va_point, d1_coord, d2_coord
             )
             
-            row_results[f'score_{d1_word}'] = score_d1
-            row_results[f'score_{d2_word}'] = score_d2
+            row_results[f'{d1_word}'] = score_d1
+            row_results[f'{d2_word}'] = score_d2
 
         results_list.append(row_results)
     
