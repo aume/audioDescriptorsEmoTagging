@@ -1,14 +1,14 @@
 # Ignore all files and subdirectories within 'datasets/'
-datasets/*
-# But don't ignore the directory itself
-!datasets/
 
-figures/*
-!figures/
-
-trained_models/*
-!trained_models/
 
 __pycache__/
 
 .DS_Store
+
+*.png
+*.joblib
+*.db
+*.csv
+*.wav
+*.txt
+*.pdf
