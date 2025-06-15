@@ -11,11 +11,11 @@ from va_analyzer import perform_descriptor_analysis
 # --- Configuration ---
 # Path and prefix for output csv
 DATASETS_DIR = "./datasets/"
-DATA_OUTPUT_PREFIX = "miniC_chaotic_audio"
+DATA_OUTPUT_PREFIX = "miniC_audio"
 
 # Path to the folder containing the new audio files you want to analyze
 # IMPORTANT: put  new .wav files here!
-NEW_AUDIO_FOLDER = "/Users/fungi/Documents/xSpace/audioDescriptorsEmoAnalysis/MiniCorpus/Audio" 
+NEW_AUDIO_FOLDER = "./datasets/HLD_corpus/" 
 
 
 # Paths to  saved models 
