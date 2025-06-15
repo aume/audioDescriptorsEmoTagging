@@ -139,7 +139,7 @@ def train_descriptor_model(X, Y, descriptor_name):
 
     # Define the number of features for SelectKBest. 
     # Use min(150, actual_feature_count) to prevent errors if fewer than 150 features are available.
-    k_features = min(150, X.shape[1]) 
+    k_features = min(40, X.shape[1]) 
     
     # Define the SVR pipeline: StandardScaler -> SelectKBest -> SVR
     regr_pipeline = Pipeline([

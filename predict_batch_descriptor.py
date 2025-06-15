@@ -35,7 +35,7 @@ if __name__ == "__main__":
     print("--- Batch Descriptor Value Prediction Program ---")
 
     # --- User Input ---
-    descriptor_input = input("Enter the filename of the trained descriptor model (e.g., trained_descriptor_happy_sad_model.joblib): ").strip()
+    descriptor_input = input("Enter the filename of the trained descriptor model (e.g., happy, chaotic): ").strip()
     audio_directory_path = input("Enter the path to the directory containing WAV audio files: ").strip().replace("'", '')
 
     model_filename = get_model_filename(descriptor_input)

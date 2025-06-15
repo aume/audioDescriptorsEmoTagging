@@ -128,7 +128,7 @@ def train_descriptor_model_and_get_r2(X, Y, descriptor_name, save_dir):
     X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.2, random_state=DESCRIPTOR_MODEL_RANDOM_STATE)
 
     # Determine k for SelectKBest (max 150 features, or less if fewer are available)
-    k_features = min(150, X.shape[1]) 
+    k_features = min(40, X.shape[1]) 
     
     # Define the SVR pipeline
     regr_pipeline = Pipeline([

@@ -20,7 +20,7 @@ The system processes audio files in a multi-stage pipeline:
 
 
 ## Pipeline execution order
-train_emo_model.py (V&A) -> predict_new_audio.py (new corpus) -> log_predictions_to_db.py -> train_and_visualize_all_descriptors.py -> predict_batch_descriptor.py (dir) | predict_descriptor_value.py (single)
+train_emo_model.py (V&A) -> predict_new_audio.py (new corpus) -> log_predictions_to_db.py -> train_and_visualize_all_descriptors.py -> predict_batch_descriptor.py (dir) (or) predict_descriptor_value.py (single)
 
 ## System Components
 

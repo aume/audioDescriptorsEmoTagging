@@ -9,12 +9,18 @@ from va_data_loader import load_vad_lexicon, load_descriptor_pairs
 from va_analyzer import perform_descriptor_analysis
 
 # --- Configuration ---
+# Path and prefix for output csv
+DATASETS_DIR = "./datasets/"
+DATA_OUTPUT_PREFIX = "miniC_chaotic_audio"
+
+# Path to the folder containing the new audio files you want to analyze
+# IMPORTANT: put  new .wav files here!
+NEW_AUDIO_FOLDER = "/Users/fungi/Documents/xSpace/audioDescriptorsEmoAnalysis/MiniCorpus/Audio" 
+
+
 # Paths to  saved models 
 VALENCE_MODEL_PATH = "./trained_models/trained_valence_model.joblib" # Updated name to match saving in main.py
 AROUSAL_MODEL_PATH = "./trained_models/trained_arousal_model.joblib" # Update if you save arousal separately
-
-# Path to the folder containing the new audio files you want to analyze
-NEW_AUDIO_FOLDER = "./datasets/HLD_corpus/" # IMPORTANT: put  new .wav files here!
 
 # Paths to VAD lexicon and descriptor pairs (same as in main.py)
 VAD_LEXICON_DIR = "./datasets/NRC-VAD-Lexicon-v2.1/OneFilePerDimension"
@@ -22,7 +28,7 @@ AROUSAL_LEXICON_PATH = os.path.join(VAD_LEXICON_DIR, "arousal-NRC-VAD-Lexicon-v2
 VALENCE_LEXICON_PATH = os.path.join(VAD_LEXICON_DIR, "valence-NRC-VAD-Lexicon-v2.1.txt")
 DESCRIPTOR_PAIRS_PATH = "./datasets/descriptorPairs.txt"
 
-DATASETS_DIR = "./datasets/"
+
 
 # Feature extraction parameters (MUST be the same as during training)
 FRAME_SIZE = 2048
@@ -95,8 +101,8 @@ if __name__ == "__main__":
     # Assign the collected filenames as a new 'file' column
     new_features_raw_df['file'] = new_audio_filenames
     
-    new_features_raw_df.to_csv(DATASETS_DIR+"new_audio_features_raw.csv", index=False)
-    print("Raw extracted features saved to 'new_audio_features_raw.csv'")
+    new_features_raw_df.to_csv(DATASETS_DIR+DATA_OUTPUT_PREFIX+"_features_raw.csv", index=False)
+    print("Raw extracted features saved to 'DATA_OUTPUT_PREFIX_features_raw.csv'")
     
     print(f"Extracted features for {len(new_features_raw_df)} new audio files.")
     if not new_features_raw_df.empty:
@@ -143,8 +149,8 @@ if __name__ == "__main__":
         'valence': predicted_valence,
         'arousal': predicted_arousal
     })
-    predicted_va_df.to_csv(DATASETS_DIR+"new_audio_predicted_va.csv", index=False)
-    print("Predicted VA scores saved to 'new_audio_predicted_va.csv'")
+    predicted_va_df.to_csv(DATASETS_DIR+DATA_OUTPUT_PREFIX+"_predicted_va.csv", index=False)
+    print("Predicted VA scores saved to 'DATA_OUTPUT_PREFIX_predicted_va.csv'")
     print("\nPredicted VA Points (first 5):")
     print(predicted_va_df.head())
 
@@ -166,7 +172,7 @@ if __name__ == "__main__":
         print(descriptor_results_df.head())
         
         # Save results to CSV
-        output_csv_path = "new_audio_descriptor_scores.csv"
+        output_csv_path = DATA_OUTPUT_PREFIX+"_descriptor_scores.csv"
         descriptor_results_df.to_csv(DATASETS_DIR+output_csv_path, index=False)
         print(f"\nDetailed descriptor scores saved to '{output_csv_path}'")
     else:
