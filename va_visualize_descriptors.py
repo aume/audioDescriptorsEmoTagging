@@ -8,7 +8,7 @@ from sklearn.model_selection import train_test_split # Example for placeholder
 # Import functions from your new modules
 from va_data_loader import load_vad_lexicon, load_descriptor_pairs, load_input_va_points
 from va_analyzer import perform_descriptor_analysis
-from va_plotter import plot_va_space
+from va_plotter import plot_va_space, plot_va_space_radial
 
 # --- File Paths Configuration ---
 VAD_LEXICON_DIR = "./datasets/NRC-VAD-Lexicon-v2.1/OneFilePerDimension"
@@ -62,5 +62,5 @@ if __name__ == "__main__":
 
 
     # 5. Plotting
-    plot_va_space(input_va_points_df, descriptor_pairs)
+    plot_va_space_radial(input_va_points_df, descriptor_pairs)
     print("--- Program Finished ---")

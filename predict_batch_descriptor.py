@@ -9,6 +9,8 @@ from extractor import Extractor # Your feature extractor
 # --- Configuration ---
 # Path to your models directory (if you store them in a subfolder)
 MODELS_DIR = './trained_models/' # Assuming models are in the current directory
+# Path for output csv
+DATASETS_DIR = "./datasets/"
 
 # Feature extraction parameters (MUST be the same as during training)
 FRAME_SIZE = 2048
@@ -121,6 +123,7 @@ if __name__ == "__main__":
         print("\nNo successful predictions made. Check for errors during processing.")
     else:
         results_df = pd.DataFrame(predictions_data)
+        results_df.to_csv(f"{DATASETS_DIR}{descriptor_name}_hld_prediction.csv")
         # Sort by the predicted value column in descending order
         predicted_column_name = f'predicted_{descriptor_name.replace("/", "_")}'
         results_df_sorted = results_df.sort_values(by=predicted_column_name, ascending=False).reset_index(drop=True)
