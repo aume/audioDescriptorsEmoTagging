@@ -1,23 +1,16 @@
-import sqlite3
-import math
 import os
-import numpy as np
-import statistics
-import matplotlib.pyplot as plt
+import glob
+import traceback
 import pandas as pd
-from extractor import Extractor
-
-from sklearn.svm import SVR
-from sklearn.model_selection import GridSearchCV
-from sklearn.model_selection import train_test_split
-from sklearn.pipeline import Pipeline
-from sklearn.pipeline import make_pipeline
-from sklearn.feature_selection import SelectKBest, chi2, f_classif, f_regression
+from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-import joblib # Import joblib for saving/loading models
-import traceback # Import traceback for detailed error logging
-
+from sklearn.pipeline import Pipeline
+from lightgbm import LGBMRegressor
+import optuna
+from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
+import matplotlib.pyplot as plt
+import joblib
+from extractor import Extractor 
 
 # 1. fetch sounds from directory
 # fetch rating value from database file
@@ -25,192 +18,179 @@ import traceback # Import traceback for detailed error logging
 # df = [values,..][[features],..]
 # 3. train and evaluate model 
 
+# ─── CONFIG ─────────────────────────────────────────────────────────────────────
+n_trials       = 60  # how many Optuna trials to run
+build_dataset  = True
 
-build_dataset = True
-#
-# 1.
-#
 # !!! IMPORTANT: Set these paths based on whether you are training Valence or Arousal !!!
 # Uncomment one block at a time to train each model:
 
 # For Valence training:
-# va_file = './datasets/out_Valence.csv'
+# va_file = './datasets/out_Valence_feature_importance.csv'
 # df_ratings_path = "./datasets/Emo-Soundscapes/Emo-Soundscapes-Ratings/Valence.csv"
-# model_output_name = "./trained_models/trained_valence_model.joblib"
+# model_output_name = "./trained_models_lightgbm/va_model/trained_valence_model_lightgbm.joblib"
 # print("--- Configuring for Valence Model Training ---")
 
-
-# For Arousal training:
-va_file = './datasets/out_Arousal.csv'
+# # For Arousal training:
+va_file         = './datasets/out_Arousal_feature_importance.csv'
 df_ratings_path = "./datasets/Emo-Soundscapes/Emo-Soundscapes-Ratings/Arousal.csv"
-model_output_name = "./trained_models/trained_arousal_model.joblib"
+model_output_name = "./trained_models_lightgbm/va_model/trained_arousal_model_lightgbm.joblib"
 print("--- Configuring for Arousal Model Training ---")
 
+# !!! IMPORTANT: Create a new folder then put 600_Sounds and 613_MixedSounds folders here
+audioFolder = "./datasets/Emo-Soundscapes/Emo-Soundscapes-Audio/600Sounds_and_613MixedSounds"
 
-audioFolder = "./datasets/Emo-Soundscapes/Emo-Soundscapes-Audio/600_Sounds/All/"
+# ─── 0) scan recursively and map basenames to full paths ─────────────────────────
+wav_paths = glob.glob(os.path.join(audioFolder, '**', '*.wav'), recursive=True)
+file_to_path = { os.path.basename(p): p for p in wav_paths }
+print(f"Found {len(wav_paths)} .wav files under {audioFolder}")
 
-
-# 2.
-#
+# ─── 1) BUILD OR LOAD DATASET ───────────────────────────────────────────────────
 if build_dataset:
     print('Building dataset by extracting features...')
-    frame_size = 2048
-    hop_size = 1024
-    sample_rate = 32000
 
+    frame_size  = 2048
+    hop_size    = 1024
+    sample_rate = 32000
     s1 = Extractor(sample_rate, frame_size, hop_size)
     
     all_features_list = []
+    df_ratings = pd.read_csv(df_ratings_path, header=None, names=['file','value'])
     
-    df_ratings = pd.read_csv(df_ratings_path) # Load df_ratings here for consistency
-    for index, row in df_ratings.iterrows():
-        file_name = row[0]
-        value = row[1]
-        file_path = os.path.join(audioFolder, file_name)
-
-        if os.path.exists(file_path):
-            print(f"Extracting from: {file_name}")
+    for _, row in df_ratings.iterrows():
+        fname = row['file']
+        value = row['value']
+        file_path = file_to_path.get(fname)
+        
+        if file_path:
+            print(f"Extracting from: {fname}")
             try:
-                features_dict = s1.extract(file_path) # Returns a dict of features for one file
-                if features_dict: # Only add if features were successfully extracted
-                    features_dict['file'] = file_name
-                    features_dict['value'] = float(value)
-                    all_features_list.append(features_dict)
+                features = s1.extract(file_path)
+                if features:
+                    features['file']  = fname
+                    features['value'] = float(value)
+                    all_features_list.append(features)
                 else:
-                    print(f"No features extracted for {file_name}. Skipping.")
-            except Exception as e:
-                print(f"Skipping {file_name}. An error occurred during feature extraction.")
-                print(f"Error: {e}")
-                print("--- Full Traceback ---")
+                    print(f"  → No features extracted for {fname}, skipping.")
+            except Exception:
+                print(f"  → Error extracting {fname}, skipping.")
                 print(traceback.format_exc())
-                print("----------------------")
         else:
-            print(f"File does not exist: {file_path}. Skipping.")
-    
+            print(f"  → File not found in tree: {fname}")
+
     if not all_features_list:
-        print("No features extracted. Ensure audio files exist and Extractor works correctly.")
-        exit()
+        print("No features extracted. Check your audioFolder and Extractor.")
+        exit(1)
 
     new_df = pd.DataFrame(all_features_list)
-    new_df.to_csv(va_file, index=False) 
+    new_df.to_csv(va_file, index=False)
     print(f"Dataset built and saved to {va_file}")
+
 else:
     print(f"Loading dataset from existing CSV: {va_file}")
     new_df = pd.read_csv(va_file)
-    # Ensure all columns are numeric, coerce errors to NaN and drop if any remain
-    numeric_cols = new_df.columns.drop(['file', 'value'], errors='ignore')
-    for col in numeric_cols:
+    # coerce non-numeric to NaN, then drop
+    for col in new_df.columns.drop(['file','value'], errors='ignore'):
         new_df[col] = pd.to_numeric(new_df[col], errors='coerce')
-    new_df.dropna(inplace=True) # Drop rows with any NaN after coercion
+    new_df.dropna(inplace=True)
 
+# ─── 2) PREPARE FEATURES & TARGET ────────────────────────────────────────────────
+X = new_df.drop(columns=['file','value'], errors='ignore')
+Y = new_df['value']
 
-#
-# 3.
-#
+if X.shape[0] < 2:
+    print("Not enough data to train. Exiting.")
+    exit(1)
 
-
-X = new_df.drop(columns=['file', 'value'], errors='ignore') # Features
-Y = new_df['value'] # Target VA value
-
-
-# Check if there's enough data after feature extraction and cleaning
-if X.empty or Y.empty or len(X) < 2:
-    print("Not enough data to train the model after feature extraction/loading and cleaning. Exiting.")
-    exit()
-
-
-# --- NEW: Get the list of all original feature names before splitting and pipeline ---
 all_original_feature_names = X.columns.tolist()
-print(f"Total original features extracted and available for pipeline: {len(all_original_feature_names)}")
+print(f"Total features available: {len(all_original_feature_names)}")
 
+X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.3, random_state=1)
+print(f"Train shape: {X_train.shape}, Test shape: {X_test.shape}")
 
-# feture selection
-X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.2, random_state=1)
+# ─── 3) OPTUNA TUNING ───────────────────────────────────────────────────────────
+def stop_if_good(study, trial):
+    if trial.value is not None and trial.value >= 0.95:
+        print(f"▶️ Stopping early: trial#{trial.number} reached {trial.value:.3f}")
+        study.stop()
 
-print(f"\nTraining data shape: {X_train.shape}")
-print(f"Test data shape: {X_test.shape}")
+def lgb_objective(trial):
+    params = {
+        "n_estimators":     trial.suggest_int("n_estimators", 50, 500),
+        "num_leaves":       trial.suggest_int("num_leaves", 16, 128),
+        "max_depth":        trial.suggest_int("max_depth", 3, 20),
+        "learning_rate":    trial.suggest_loguniform("learning_rate", 1e-4, 1e-1),
+        "subsample":        trial.suggest_uniform("subsample", 0.5, 1.0),
+        "colsample_bytree": trial.suggest_uniform("colsample_bytree", 0.5, 1.0),
+        "reg_alpha":        trial.suggest_loguniform("reg_alpha", 1e-8, 10.0),
+        "reg_lambda":       trial.suggest_loguniform("reg_lambda", 1e-8, 10.0),
+        "random_state":     42,
+        "n_jobs":           -1
+    }
+    pipe = Pipeline([
+        ('scaler', StandardScaler()),
+        ('lgbm',   LGBMRegressor(**params))
+    ])
+    return cross_val_score(pipe, X_train, y_train, cv=3, scoring="r2").mean()
 
+study = optuna.create_study(direction="maximize")
+study.optimize(lgb_objective, n_trials=n_trials, callbacks=[stop_if_good])
+best_params = study.best_params
+print("▶️ Best LGBM params:", best_params)
 
-# Ensure k is not greater than the number of available features
-k_features = min(150, X.shape[1]) 
-regr = Pipeline([ # CHANGED: Use Pipeline directly
-    ('scaler', StandardScaler()),              # Name the scaler 'scaler'
-    ('selector', SelectKBest(f_regression, k=k_features)), # Name the selector 'selector'
-    ('svr', SVR(C=0.4, epsilon=0.01))          # Name the SVR 'svr'
+# ─── 4) TRAIN FINAL PIPELINE ───────────────────────────────────────────────────
+regr = Pipeline([
+    ('scaler', StandardScaler()),
+    ('lgbm',   LGBMRegressor(**best_params))
 ])
-
 regr.fit(X_train, y_train)
-print("\nModel training complete.")
+print("Optuna-tuned LightGBM pipeline training complete.")
 
-
-# Access the StandardScaler step by its name ('scaler')
-scaler_step = regr.named_steps['scaler']
-
-print("StandardScaler Parameters:")
-print(f"  Mean (per feature): {scaler_step.mean_[:5]}... (first 5 values)") # Print first 5 for brevity
-print(f"  Standard Deviation (per feature): {scaler_step.scale_[:5]}... (first 5 values)") # Print first 5 for brevity
-print("-" * 50)
-
-# Access the SelectKBest step by its name ('selector')
-selector_step = regr.named_steps['selector']
-
-# Get the boolean mask of selected features
-selected_features_mask = selector_step.get_support()
-
-# Get the names of the features that were input to SelectKBest
-# This will be the columns of X_train (which is a subset of all_original_feature_names)
-features_before_selection = X_train.columns
-
-# Use the boolean mask to filter the original feature names
-selected_feature_names = features_before_selection[selected_features_mask].tolist()
-
-print(f"Selected Features by SelectKBest (k={selector_step.k}):")
-print(selected_feature_names[:10]) # Print first 10 selected features
-print(f"Total selected features: {len(selected_feature_names)}")
-
-# Optional: Print scores of the selected features (useful for understanding why they were chosen)
-print("\nScores for Selected Features:")
-# selector_step.scores_ holds the scores for all features *before* selection
-# We filter these scores using the same mask
-selected_scores = selector_step.scores_[selected_features_mask]
-selected_pvalues = selector_step.pvalues_[selected_features_mask] # if using f_classif/f_regression
-
-for name, score, p_value in zip(selected_feature_names, selected_scores, selected_pvalues):
-    print(f"  {name}: Score = {score:.4f}, P-value = {p_value:.4f}")
-
-
+# ─── 5) EVALUATE & SAVE ─────────────────────────────────────────────────────────
 y_pred = regr.predict(X_test)
+print("\n--- Model Evaluation (LightGBM) ---")
+print(f"R2 Score: {r2_score(y_test, y_pred):.3f}")
+print(f"MAE:       {mean_absolute_error(y_test, y_pred):.3f}")
+print(f"MSE:       {mean_squared_error(y_test, y_pred):.3f}")
 
-r2 = r2_score(y_test, y_pred)
-mae = mean_absolute_error(y_test, y_pred)
-mse = mean_squared_error(y_test, y_pred)
+# ensure parent dir exists
+model_dir = os.path.dirname(model_output_name)
+os.makedirs(model_dir, exist_ok=True)
 
-print("\n--- Model Evaluation ---")
-print(f"R2 Score: {r2:.3f}")
-print(f"Mean Absolute Error (MAE): {mae:.3f}")
-print(f"Mean Squared Error (MSE): {mse:.3f}")
-print("-" * 50)
-
-
-# --- NEW: Save the model along with selected features and ALL original features ---
-model_and_features_to_save = {
+joblib.dump({
     'model': regr,
-    'selected_features': selected_feature_names, # The 150 features used by SVR
-    'all_original_features': all_original_feature_names # The full list of 172 features
-}
+    'all_original_features': all_original_feature_names
+}, model_output_name)
+print(f"Model and features saved to '{model_output_name}'")
 
-joblib.dump(model_and_features_to_save, model_output_name)
-print(f"\nModel and selected feature list saved to '{model_output_name}'")
-
-
-# --- Plotting (using the input data for this specific run) ---
-plt.figure(figsize=(8, 6))
-plt.scatter(y_test, y_pred, color="blue", alpha=0.7)
-plt.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], "k--", lw=2)
+# ─── 6) QUICK SCATTER PLOT ───────────────────────────────────────────────────────
+plt.figure(figsize=(8,6))
+plt.scatter(y_test, y_pred, alpha=0.7)
+plt.plot([y_test.min(), y_test.max()],
+         [y_test.min(), y_test.max()],
+         'k--', lw=2)
 plt.xlabel("True Values")
 plt.ylabel("Predicted Values")
-plt.title(f"True Values vs. Predicted Values (SVR) R2={r2:.3f}")
+plt.title(f"True vs Predicted (LGBM) R²={r2_score(y_test, y_pred):.3f}")
 plt.grid(True)
+plt.tight_layout()
 plt.show()
 
-print("\n--- Program Finished ---")
+# ─── 7) FEATURE IMPORTANCE (GAIN) ─────────────────────────────────────────────────
+lgbm_model = regr.named_steps['lgbm']
+gain_vals  = lgbm_model.booster_.feature_importance(importance_type='gain')
+importances = pd.Series(gain_vals, index=all_original_feature_names).sort_values(ascending=False)
+
+# print top N
+top_n = 10
+print(f"\nTop {top_n} features by gain:")
+print(importances.head(top_n))
+
+# bar‐plot of top N
+plt.figure(figsize=(10,6))
+importances.head(top_n).plot(kind='bar')
+plt.xticks(rotation=45, ha='right')
+plt.ylabel("Gain")
+plt.title(f"Top {top_n} Gain Importances")
+plt.tight_layout()
+plt.show()

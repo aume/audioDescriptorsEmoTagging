@@ -8,9 +8,7 @@ from extractor import Extractor # Your feature extractor
 
 # --- Configuration ---
 # Path to your models directory (if you store them in a subfolder)
-MODELS_DIR = './trained_models/' # Assuming models are in the current directory
-# Path for output csv
-DATASETS_DIR = "./datasets/"
+MODELS_DIR = './trained_models_lightgbm/hld_models/'
 
 # Feature extraction parameters (MUST be the same as during training)
 FRAME_SIZE = 2048
@@ -20,7 +18,7 @@ SAMPLE_RATE = 32000
 def get_model_filename(descriptor_name):
     """Generates the expected filename for a descriptor's trained model."""
     # This must match the saving convention in train_descriptor_model.py
-    return f"trained_descriptor_{descriptor_name.replace(' ', '_').replace('/', '_')}_model.joblib"
+    return f"trained_descriptor_{descriptor_name.replace(' ', '_').replace('/', '_')}_lightgbm.joblib"
 
 def get_descriptor_name_from_model_filename(model_filename):
     """
@@ -62,7 +60,7 @@ if __name__ == "__main__":
     try:
         loaded_data = joblib.load(model_full_path)
         descriptor_model_pipeline = loaded_data['model']
-        all_original_features_list = loaded_data['all_original_features']
+        all_original_features_list = loaded_data['features']
         print(f"\nLoaded model for descriptor '{descriptor_name}' from '{model_full_path}'.")
         print(f"Model expects {len(all_original_features_list)} original features.")
     except FileNotFoundError: # This check is already done above, but good for redundancy or if MODELS_DIR changes
@@ -99,16 +97,38 @@ if __name__ == "__main__":
             # Extract features
             extracted_features_dict = s1.extract(full_audio_path)
             if not extracted_features_dict:
-                print(f"    Warning: No features extracted from '{audio_audio_file_name}'. Skipping.")
+                print(f"    Warning: No features extracted from '{audio_file_name}'. Skipping.")
                 continue
 
             # Prepare features for prediction
-            extracted_features_df = pd.DataFrame([extracted_features_dict]) 
-            features_for_prediction = extracted_features_df.reindex(columns=all_original_features_list, fill_value=0.0)
-            features_for_prediction = features_for_prediction.fillna(0.0) # Final NaN check
+            # extracted_features_df = pd.DataFrame([extracted_features_dict]) 
+            # features_for_prediction = extracted_features_df.reindex(columns=all_original_features_list, fill_value=0.0)
+            # features_for_prediction = features_for_prediction.fillna(0.0) # Final NaN check
 
-            # Make prediction
-            predicted_value = descriptor_model_pipeline.predict(features_for_prediction)[0]
+            # # Make prediction
+            # predicted_value = descriptor_model_pipeline.predict(features_for_prediction)[0]
+
+            extracted_features_df = pd.DataFrame([extracted_features_dict])
+
+            df_new = extracted_features_df.reindex(
+                columns=all_original_features_list,
+                fill_value=0.0
+            ).fillna(0.0)
+
+            # 1. Grab the scaler + regressor out of your pipeline
+            scaler = descriptor_model_pipeline.named_steps['scaler']
+            lgbm   = descriptor_model_pipeline.named_steps['lgbm']
+
+            # 2. Scale your features (this returns a numpy array)
+            scaled_arr = scaler.transform(df_new)
+
+            # 3. Re‐wrap as a DataFrame *with the original feature names*
+            df_scaled = pd.DataFrame(scaled_arr, columns=all_original_features_list)
+
+            # 4. Predict on that DataFrame
+            predicted_value = lgbm.predict(df_scaled)[0]
+
+
             predictions_data.append({
                 'filename': audio_file_name,
                 f'predicted_{descriptor_name.replace("/", "_")}': predicted_value
@@ -123,12 +143,28 @@ if __name__ == "__main__":
         print("\nNo successful predictions made. Check for errors during processing.")
     else:
         results_df = pd.DataFrame(predictions_data)
-        results_df.to_csv(f"{DATASETS_DIR}{descriptor_name}_hld_prediction.csv")
         # Sort by the predicted value column in descending order
         predicted_column_name = f'predicted_{descriptor_name.replace("/", "_")}'
-        results_df_sorted = results_df.sort_values(by=predicted_column_name, ascending=False).reset_index(drop=True)
+        # --- 4. Sort and Display Results ---
+        results_df_sorted = results_df \
+            .sort_values(by=predicted_column_name, ascending=False) \
+            .reset_index(drop=True)
 
-        print(f"\n--- Predicted '{descriptor_name}' Values (Decreasing Order) ---")
-        print(results_df_sorted.to_string(index=False)) # Use to_string to avoid truncation
+        # --- 5. Prepare for CSV output ---
+        results_for_csv = results_df_sorted.rename(columns={
+            'filename': 'file',
+            predicted_column_name: 'value'
+        })
+
+    # build output path
+    descriptor_key = descriptor_name.lower()
+    output_path = f"./datasets/predictions/hld/{descriptor_key}_hld_prediction_lightgbm.csv"
+
+    output_dir = os.path.dirname(output_path)
+    os.makedirs(output_dir, exist_ok=True)
+
+    # write out with new headers
+    results_for_csv.to_csv(output_path, index=False)
+    print(f"\nSaved predictions to {output_path}")
 
     print("\n--- Batch Prediction Complete ---")

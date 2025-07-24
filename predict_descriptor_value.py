@@ -8,7 +8,8 @@ from extractor import Extractor #  feature extractor
 
 # --- Configuration ---
 # Path to  models directory (if you store them in a subfolder)
-MODELS_DIR = './trained_models' # Assuming models are in the current directory as per previous scripts
+# MODELS_DIR = './trained_models' # Assuming models are in the current directory as per previous scripts
+MODELS_DIR = './trained_models_lightgbm/hld_models/'
 
 # Feature extraction parameters (MUST be the same as during training)
 FRAME_SIZE = 2048
@@ -18,9 +19,14 @@ SAMPLE_RATE = 32000
 def get_model_filename(descriptor_name):
     """Generates the expected filename for a descriptor's trained model."""
     # This must match the saving convention in train_descriptor_model.py
-    return f"trained_descriptor_{descriptor_name.replace(' ', '_').replace('/', '_')}_model.joblib"
+    #return f"trained_descriptor_{descriptor_name.replace(' ', '_').replace('/', '_')}_model.joblib"
+    return f"trained_descriptor_{descriptor_name.replace(' ', '_').replace('/', '_')}_lightgbm.joblib"
 
 if __name__ == "__main__":
+
+    os.makedirs(MODELS_DIR, exist_ok=True)
+    print(f"Using models directory: {MODELS_DIR}")
+    
     print("--- Descriptor Value Prediction Program ---")
 
     # --- User Input ---
@@ -39,7 +45,8 @@ if __name__ == "__main__":
     try:
         loaded_data = joblib.load(model_full_path)
         descriptor_model_pipeline = loaded_data['model']
-        all_original_features_list = loaded_data['all_original_features']
+        # all_original_features_list = loaded_data['all_original_features']
+        all_original_features_list = loaded_data['features']
         print(f"\nLoaded model for descriptor '{descriptor_input}' from '{model_full_path}'.")
         print(f"Model expects {len(all_original_features_list)} original features.")
     except FileNotFoundError:

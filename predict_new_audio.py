@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import joblib
 import numpy as np
+import os
 
 # Make sure these are accessible (e.g., in the same directory or correctly imported from a package)
 from extractor import Extractor # feature extractor
@@ -11,23 +12,22 @@ from va_analyzer import perform_descriptor_analysis
 # --- Configuration ---
 # Path and prefix for output csv
 DATASETS_DIR = "./datasets/"
-DATA_OUTPUT_PREFIX = "miniC_audio"
+#DATA_OUTPUT_PREFIX = "miniC_audio"
+DATA_OUTPUT_PREFIX = "predictions/va/new_audio"
 
 # Path to the folder containing the new audio files you want to analyze
 # IMPORTANT: put  new .wav files here!
-NEW_AUDIO_FOLDER = "./datasets/HLD_corpus/" 
-
+NEW_AUDIO_FOLDER = "./datasets/HLD_corpus" 
 
 # Paths to  saved models 
-VALENCE_MODEL_PATH = "./trained_models/trained_valence_model.joblib" # Updated name to match saving in main.py
-AROUSAL_MODEL_PATH = "./trained_models/trained_arousal_model.joblib" # Update if you save arousal separately
+VALENCE_MODEL_PATH = "./trained_models_lightgbm/va_models/trained_valence_model_lightgbm.joblib"
+AROUSAL_MODEL_PATH = "./trained_models_lightgbm/va_models/trained_arousal_model_lightgbm.joblib" 
 
 # Paths to VAD lexicon and descriptor pairs (same as in main.py)
 VAD_LEXICON_DIR = "./datasets/NRC-VAD-Lexicon-v2.1/OneFilePerDimension"
 AROUSAL_LEXICON_PATH = os.path.join(VAD_LEXICON_DIR, "arousal-NRC-VAD-Lexicon-v2.1.txt")
 VALENCE_LEXICON_PATH = os.path.join(VAD_LEXICON_DIR, "valence-NRC-VAD-Lexicon-v2.1.txt")
 DESCRIPTOR_PAIRS_PATH = "./datasets/descriptorPairs.txt"
-
 
 
 # Feature extraction parameters (MUST be the same as during training)
@@ -43,17 +43,17 @@ if __name__ == "__main__":
     try:
         valence_data = joblib.load(VALENCE_MODEL_PATH)
         valence_model = valence_data['model']
-        valence_selected_features_list = valence_data['selected_features'] # The 150 selected features
+        #valence_selected_features_list = valence_data['selected_features'] # The 150 selected features
         valence_all_original_features_list = valence_data['all_original_features'] # The 172 original features (NEW)
         print(f"Loaded Valence model from {VALENCE_MODEL_PATH}.")
-        print(f"  Model expects {len(valence_all_original_features_list)} original features and uses {len(valence_selected_features_list)} selected features.")
+        print(f"  Model expects {len(valence_all_original_features_list)} original features.")
 
         arousal_data = joblib.load(AROUSAL_MODEL_PATH)
         arousal_model = arousal_data['model']
-        arousal_selected_features_list = arousal_data['selected_features']
+        #arousal_selected_features_list = arousal_data['selected_features']
         arousal_all_original_features_list = arousal_data['all_original_features'] # The 172 original features (NEW)
         print(f"Loaded Arousal model from {AROUSAL_MODEL_PATH}.")
-        print(f"  Model expects {len(arousal_all_original_features_list)} original features and uses {len(arousal_selected_features_list)} selected features.")
+        print(f"  Model expects {len(arousal_all_original_features_list)} original features.")
 
     except FileNotFoundError:
         print(f"Error: One or both models not found. Ensure '{VALENCE_MODEL_PATH}' and '{AROUSAL_MODEL_PATH}' exist.")
@@ -101,9 +101,11 @@ if __name__ == "__main__":
     # Assign the collected filenames as a new 'file' column
     new_features_raw_df['file'] = new_audio_filenames
     
-    new_features_raw_df.to_csv(DATASETS_DIR+DATA_OUTPUT_PREFIX+"_features_raw.csv", index=False)
-    print("Raw extracted features saved to 'DATA_OUTPUT_PREFIX_features_raw.csv'")
-    
+    raw_csv_path = os.path.join(DATASETS_DIR, DATA_OUTPUT_PREFIX + "_features_raw.csv")
+    os.makedirs(os.path.dirname(raw_csv_path), exist_ok=True)
+    new_features_raw_df.to_csv(raw_csv_path, index=False)
+    print(f"Raw extracted features saved to '{raw_csv_path}'")
+        
     print(f"Extracted features for {len(new_features_raw_df)} new audio files.")
     if not new_features_raw_df.empty:
         print(f"Raw extracted features columns: {new_features_raw_df.columns.tolist()[:5]}...") # Show first 5
@@ -149,8 +151,11 @@ if __name__ == "__main__":
         'valence': predicted_valence,
         'arousal': predicted_arousal
     })
-    predicted_va_df.to_csv(DATASETS_DIR+DATA_OUTPUT_PREFIX+"_predicted_va.csv", index=False)
-    print("Predicted VA scores saved to 'DATA_OUTPUT_PREFIX_predicted_va.csv'")
+    va_csv_path = os.path.join(DATASETS_DIR, DATA_OUTPUT_PREFIX + "_predicted_va.csv")
+    os.makedirs(os.path.dirname(va_csv_path), exist_ok=True)
+    predicted_va_df.to_csv(va_csv_path, index=False)
+    print(f"Predicted VA scores saved to '{va_csv_path}'")
+
     print("\nPredicted VA Points (first 5):")
     print(predicted_va_df.head())
 
@@ -168,13 +173,15 @@ if __name__ == "__main__":
     # 8. Calculate Descriptor Values
     if not predicted_va_df.empty and descriptor_pairs:
         descriptor_results_df = perform_descriptor_analysis(predicted_va_df, descriptor_pairs)
-        print("\n--- Descriptor Value Analysis Results for New Audio (first 5 rows) ---")
+        print("\n--- Descriptor Value Analysis Resuts for New Audio (first 5 rows) ---")
         print(descriptor_results_df.head())
         
         # Save results to CSV
-        output_csv_path = DATA_OUTPUT_PREFIX+"_descriptor_scores.csv"
-        descriptor_results_df.to_csv(DATASETS_DIR+output_csv_path, index=False)
-        print(f"\nDetailed descriptor scores saved to '{output_csv_path}'")
+        output_csv_path = ""+DATA_OUTPUT_PREFIX+"_descriptor_scores.csv"
+        desc_csv_path = os.path.join(DATASETS_DIR, DATA_OUTPUT_PREFIX + "_descriptor_scores.csv")
+        os.makedirs(os.path.dirname(desc_csv_path), exist_ok=True)
+        descriptor_results_df.to_csv(desc_csv_path, index=False)
+        print(f"Detailed descriptor scores saved to '{desc_csv_path}'")
     else:
         print("Skipping descriptor analysis due to missing VA predictions or descriptor pairs.")
 
