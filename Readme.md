@@ -110,7 +110,7 @@ Before running the system, ensure you have the following installed:
 - **pip** (Python package installer)
 - **Essential Python Libraries**:
   ```bash
-  pip install pandas numpy scikit-learn matplotlib joblib librosa soundfile essentia
+  pip install pandas numpy scikit-learn matplotlib joblib librosa soundfile essentia optuna lightgbm seaboarn
   ```
   - `librosa` and `soundfile` are needed for audio processing in `extractor.py`.
   - `essentia` is the core audio feature extraction library. Ensure it's correctly installed for your OS/architecture (sometimes requires specific instructions or a pre-compiled wheel).
