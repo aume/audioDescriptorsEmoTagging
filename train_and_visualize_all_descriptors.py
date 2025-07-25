@@ -3,19 +3,29 @@ import sqlite3
 import pandas as pd
 import joblib
 import matplotlib.pyplot as plt
-from sklearn.svm import SVR
+
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
-from sklearn.feature_selection import SelectKBest, f_regression
-from sklearn.metrics import r2_score
+from sklearn.metrics import r2_score, mean_absolute_error
+from sklearn.model_selection import cross_val_score
+
+# NEW: use LightGBM 
+from lightgbm import LGBMRegressor
+import optuna
+import csv
 
 # --- Configuration ---
-DATABASE_NAME = './datasets/audio_predictions.db'
+DATABASE_NAME = './datasets/audio_predictions_lightgbm.db'
 # Random state used for splitting data during descriptor model training
 DESCRIPTOR_MODEL_RANDOM_STATE = 42
 # Directory to save all trained descriptor models
-MODELS_SAVE_DIR = './trained_models/'
+MODELS_SAVE_DIR = './trained_models_lightgbm/hld_models/'
+
+# NEW: how many Optuna trials to run
+n_trials = 60
+# NEW: subset of descriptors to train (empty list => all)
+DESCRIPTORS_TO_RUN = []
 
 def get_available_descriptors(db_name):
     """
@@ -84,8 +94,7 @@ def load_data_for_descriptor(db_name, selected_descriptor):
             columns='feature_name',
             values='feature_value'
         )
-        
-        features_wide_df = features_wide_df.fillna(0) # Fill NaNs if features are missing for some files
+        features_wide_df = features_wide_df.fillna(0)  # Fill NaNs if features are missing for some files
 
         # 4. Merge the wide features DataFrame with the descriptor scores DataFrame
         merged_df = pd.merge(features_wide_df, descriptor_df, on='filename', how='inner')
@@ -95,11 +104,11 @@ def load_data_for_descriptor(db_name, selected_descriptor):
             return None, None
 
         # Separate features (X) and target (Y)
-        X = merged_df.drop(columns=['filename', 'score']) 
+        X = merged_df.drop(columns=['filename', 'score'])
         Y = merged_df['score']
 
-        X = X.apply(pd.to_numeric, errors='coerce') # Ensure all feature columns are numeric
-        X = X.fillna(0) # Fill any NaNs that might arise from coercion
+        X = X.apply(pd.to_numeric, errors='coerce')  # Ensure all feature columns are numeric
+        X = X.fillna(0)  # Fill any NaNs that might arise from coercion
 
         return X, Y
 
@@ -113,49 +122,110 @@ def load_data_for_descriptor(db_name, selected_descriptor):
         if conn:
             conn.close()
 
+# NEW: early stopping callback for Optuna when R2 ≥ 0.8
+def stop_if_good(study, trial):
+    if trial.value is not None and trial.value >= 0.7:
+        print(f"▶️ Stopping early: trial#{trial.number} reached {trial.value:.3f}")
+        study.stop()
+
 def train_descriptor_model_and_get_r2(X, Y, descriptor_name, save_dir):
     """
-    Trains an SVR model for the given descriptor, saves the model, and returns its R2 score.
+    Trains an LightGBM model for the given descriptor, saves the model,
+    and returns its R2 score.
     """
+
+    os.makedirs(save_dir, exist_ok=True)
+
     if X.empty or Y.empty or len(X) < 2:
         print(f"  Skipping '{descriptor_name}': Not enough data to train the model. Need at least 2 samples.")
         return None
 
-    # Store all original feature names (before SelectKBest) for later use in prediction
-    all_original_feature_names = X.columns.tolist() 
+    # Store all original feature names for later use
+    all_original_feature_names = X.columns.tolist()
 
     # Split data using the consistent random_state
-    X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.2, random_state=DESCRIPTOR_MODEL_RANDOM_STATE)
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, Y, test_size=0.2, random_state=DESCRIPTOR_MODEL_RANDOM_STATE
+    )
 
-    # Determine k for SelectKBest (max 150 features, or less if fewer are available)
-    k_features = min(40, X.shape[1]) 
-    
-    # Define the SVR pipeline
+    # -------------------------------------------------------------------------
+    # Optuna tuning for LightGBM hyperparameters
+    # -------------------------------------------------------------------------
+    def objective(trial):
+        # NEW: LightGBM hyperparameters
+        params = {
+            "n_estimators":       trial.suggest_int("n_estimators", 50, 300),
+            "num_leaves":         trial.suggest_int("num_leaves", 20, 300),
+            "max_depth":          trial.suggest_int("max_depth", 3, 15),
+            "learning_rate":      trial.suggest_loguniform("learning_rate", 1e-3, 0.3),
+            "subsample":          trial.suggest_uniform("subsample", 0.5, 1.0),
+            "colsample_bytree":   trial.suggest_uniform("colsample_bytree", 0.5, 1.0),
+            "reg_alpha":          trial.suggest_loguniform("reg_alpha", 1e-8, 10.0),
+            "reg_lambda":         trial.suggest_loguniform("reg_lambda", 1e-8, 10.0),
+            "random_state":       DESCRIPTOR_MODEL_RANDOM_STATE,
+            "n_jobs":             -1,
+            #"verbose":            -1   # silence LightGBM logs
+        }
+        model = LGBMRegressor(**params)  # NEW: instantiate LGBMRegressor
+
+        return cross_val_score(model, X_train, y_train, cv=3, scoring="r2").mean()
+
+    study = optuna.create_study(direction="maximize")
+    study.optimize(objective, n_trials=n_trials, callbacks=[stop_if_good])
+
+    best_params = study.best_params
+    print(f"  Best LightGBM params for '{descriptor_name}': {best_params}")
+
+    # -------------------------------------------------------------------------
+    # Retrain final pipeline with best parameters
+    # -------------------------------------------------------------------------
+    # NEW: final pipeline with LightGBM
     regr_pipeline = Pipeline([
-        ('scaler', StandardScaler()),              
-        ('selector', SelectKBest(f_regression, k=k_features)), 
-        ('svr', SVR(C=0.4, epsilon=0.01))          
+        ("scaler", StandardScaler()),
+        ("lgbm", LGBMRegressor(**best_params))
     ])
 
     try:
+        # Train the model
         regr_pipeline.fit(X_train, y_train)
+        print("  Model training complete.")
+
+        # Predict & evaluate
         y_pred = regr_pipeline.predict(X_test)
         r2 = r2_score(y_test, y_pred)
+        mae = mean_absolute_error(y_test, y_pred)
 
-        # --- NEW FUNCTIONALITY: Save the trained model ---
-        model_filename = f"trained_descriptor_{descriptor_name.replace(' ', '_').replace('/', '_')}_model.joblib"
-        model_full_path = os.path.join(save_dir, model_filename)
-        model_and_features_to_save = {
-            'model': regr_pipeline,
-            'all_original_features': all_original_feature_names
-        }
-        joblib.dump(model_and_features_to_save, model_full_path)
-        print(f"  Trained model saved as '{model_full_path}'")
+        print(f"  R2 for '{descriptor_name}': {r2:.3f}, MAE: {mae:.3f}")
 
-        return r2
+        # Plot true vs. predicted
+        plt.figure(figsize=(8, 6))
+        plt.scatter(y_test, y_pred, alpha=0.6, label='Predicted vs True')
+        minv, maxv = min(y_test.min(), y_pred.min()), max(y_test.max(), y_pred.max())
+        plt.plot([minv, maxv], [minv, maxv], 'r--', label='Perfect Prediction')
+        plt.title(f'"{descriptor_name}" LightGBM: True vs Predicted')
+        plt.xlabel("True Score")
+        plt.ylabel("Predicted Score")
+        plt.legend()
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.tight_layout()
+
+        plot_fn = f"true_vs_predicted_{descriptor_name.replace(' ', '_')}.png"
+        plt.savefig(os.path.join(save_dir, plot_fn))
+        print(f"  Plot saved as '{plot_fn}'")
+
+        # Save model + feature list
+        model_fn = f"trained_descriptor_{descriptor_name.replace(' ', '_')}_lightgbm.joblib"
+        joblib.dump(
+            {'model': regr_pipeline, 'features': all_original_feature_names},
+            os.path.join(save_dir, model_fn)
+        )
+        print(f"  Saved LightGBM model as '{model_fn}'")
+
+        # return the score, the fitted pipeline, and the feature names
+        return r2, regr_pipeline, all_original_feature_names
 
     except Exception as e:
-        print(f"  Error training or evaluating model for '{descriptor_name}': {e}")
+        print(f"  Error for '{descriptor_name}': {e}")
         return None
 
 if __name__ == "__main__":
@@ -172,67 +242,149 @@ if __name__ == "__main__":
         exit()
 
     # Get the list of all available descriptors
-    descriptors = get_available_descriptors(DATABASE_NAME)
+    all_descriptors = get_available_descriptors(DATABASE_NAME)
+    # NEW: only run for the ones you list
+    if DESCRIPTORS_TO_RUN:
+        descriptors = [d for d in all_descriptors if d in DESCRIPTORS_TO_RUN]
+    else:
+        descriptors = all_descriptors
+
+    print(f"\nRunning on {len(descriptors)} descriptors: {descriptors}")
 
     if not descriptors:
         print("No descriptors found in the database. Please ensure the 'descriptor_scores' table is populated.")
-        print("This typically happens after running 'predict_new_audio.py' and then 'log_predictions_to_db.py'.")
         exit()
 
-    print(f"\nFound {len(descriptors)} unique descriptors. Starting training process...")
-
-    all_r2_scores = {} # Dictionary to store R2 scores for all trained models
+    all_r2_scores = {}  # Dictionary to store R2 scores for all trained models
+    all_importances = {}  # Dictionary to store feature importances scores for all trained models
 
     # Loop through each descriptor, train a model, and collect its R2 score
-    for i, descriptor in enumerate(descriptors):
-        print(f"\n({i+1}/{len(descriptors)}) Training model for descriptor: '{descriptor}'")
-        
-        # Load data for the current descriptor
+    for i, descriptor in enumerate(descriptors, 1):
+        print(f"\n({i}/{len(descriptors)}) Training model for descriptor: '{descriptor}'")
         X_data, Y_data = load_data_for_descriptor(DATABASE_NAME, descriptor)
 
         if X_data is not None and Y_data is not None:
-            # Train model, get R2 score, and save the model
-            r2 = train_descriptor_model_and_get_r2(X_data, Y_data, descriptor, MODELS_SAVE_DIR)
-            if r2 is not None:
+
+            # r2 = train_descriptor_model_and_get_r2(X_data, Y_data, descriptor, MODELS_SAVE_DIR)
+
+            result = train_descriptor_model_and_get_r2(X_data, Y_data, descriptor, MODELS_SAVE_DIR)
+            if result is not None:
+                # now result is (r2, pipeline, feat_list)
+                r2, regr_pipeline, all_original_feature_names = result
+
                 all_r2_scores[descriptor] = r2
+
+                # extract feature importances
+                # imps = regr_pipeline.named_steps['lgbm'].feature_importances_
+                # all_importances[descriptor] = pd.Series(imps, index=all_original_feature_names)
+
+                # gain‐based importances via the underlying Booster
+                lgbm      = regr_pipeline.named_steps['lgbm']
+                gain_vals = lgbm.booster_.feature_importance(importance_type='gain')
+                # use your saved feature list so names stay correct
+                feat_names = all_original_feature_names
+                all_importances[descriptor] = pd.Series(gain_vals, index=feat_names)
+
+
                 print(f"  R2 score for '{descriptor}': {r2:.3f}")
             else:
                 print(f"  Failed to get R2 score for '{descriptor}'.")
         else:
             print(f"  Skipping '{descriptor}' due to data loading issues.")
+    
+    # NEW: FEATURE IMPORTANCE
+    # ─── right here: EXPORT TOP-10 FEATURES & SAVE BAR CHARTS ─────────────────
+    TOP_N = 10
+    OUT_DIR = os.path.join(MODELS_SAVE_DIR, 'features', 'hld')
+    os.makedirs(OUT_DIR, exist_ok=True)
 
+    # 1) dump top-10 to CSV
+    csv_path = os.path.join(OUT_DIR, 'top_features_by_descriptor.csv')
+    with open(csv_path, 'w', newline='') as f:
+        writer = csv.writer(f)
+        header = ['descriptor'] + [f for i in range(1, TOP_N+1) for f in (f'feat_{i}', f'value_{i}')]
+        writer.writerow(header)
+        for desc, imps in all_importances.items():
+            top = imps.nlargest(TOP_N)
+            row = [desc] + [elem for pair in zip(top.index, top.values) for elem in (pair[0], f"{pair[1]:.6f}")]
+            writer.writerow(row)
+    print(f"Saved top-{TOP_N} features CSV → {csv_path}")
+
+    # 2) save a bar chart per descriptor
+    for desc, imps in all_importances.items():
+        top = imps.nlargest(TOP_N)
+        plt.figure(figsize=(8,4))
+        top.plot(kind='bar')
+        plt.title(f"Top {TOP_N} Features for '{desc}'")
+        plt.ylabel("Importance")
+        plt.xticks(rotation=45, ha='right')
+        plt.tight_layout()
+        chart_fn = f"{desc.replace(' ', '_')}_top{TOP_N}_features.png"
+        plt.savefig(os.path.join(OUT_DIR, chart_fn))
+        plt.close()
+    print(f"Saved per-descriptor feature charts to {OUT_DIR}")
+
+    # ─── then continue with your existing grouped-R2 visualization ──────────────
     print("\n--- All descriptor models processed. Generating visualization ---")
 
-    # Visualize all collected R2 Scores
     if not all_r2_scores:
         print("No R2 scores collected to visualize. Check for errors during training.")
     else:
-        model_names = list(all_r2_scores.keys())
-        r2_values = list(all_r2_scores.values())
-        print(model_names)
-        print(r2_values)
-        # Sort descriptors by R2 value for better readability in the plot
-        sorted_indices = sorted(range(len(r2_values)), key=lambda k: r2_values[k], reverse=True)
-        sorted_model_names = [model_names[i] for i in sorted_indices]
-        sorted_r2_values = [r2_values[i] for i in sorted_indices]
+        # NEW GROUPED VISUALIZATION CODE
+        # ─── Load descriptor pairs from the text file ──────────────────────────────
+        pair_file = './datasets/descriptorPairs.txt'
+        descriptor_pairs = []
+        try:
+            with open(pair_file, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#'):
+                        continue
+                    parts = line.split('/')
+                    if len(parts) == 2:
+                        descriptor_pairs.append((parts[0].strip(), parts[1].strip()))
+        except FileNotFoundError:
+            print(f"Error: descriptor pairs file '{pair_file}' not found.")
+            exit()
 
-        plt.figure(figsize=(12, max(6, len(sorted_model_names) * 0.4))) # Adjust fig size dynamically
-        bars = plt.barh(sorted_model_names, sorted_r2_values, color='skyblue')
+        valid_pairs = [pair for pair in descriptor_pairs
+                    if any(d in all_r2_scores for d in pair)]
+
+        pair_scores = []
+        for pair in valid_pairs:
+            top_score = max(all_r2_scores.get(d, -1) for d in pair)
+            pair_scores.append((pair, top_score))
+        pair_scores.sort(key=lambda x: x[1], reverse=True)
+
+        colors = ['blue', 'orange']
+        ordered_names, ordered_r2, bar_colors = [], [], []
+
+        for idx, (pair, _) in enumerate(pair_scores):
+            present = sorted([d for d in pair if d in all_r2_scores],
+                            key=lambda d: all_r2_scores[d], reverse=True)
+            for d in present:
+                ordered_names.append(d)
+                ordered_r2.append(all_r2_scores[d])
+                bar_colors.append(colors[idx % 2])
+
+        plt.figure(figsize=(12, max(6, len(ordered_names)*0.4)))
+        y_pos = range(len(ordered_names))
+        bars  = plt.barh(y_pos, ordered_r2, color=bar_colors)
+        plt.yticks(y_pos, ordered_names)
         plt.xlabel('R2 Score')
-        plt.title('R2 Scores for All Descriptor Emotion Prediction Models')
-        plt.xlim(0, 1.0) # R2 scores are typically between 0 and 1
+        plt.title('R2 Scores Grouped by Descriptor Pair (LightGBM)')
+        plt.xlim(0, 1.0)
 
-        # Add R2 values as text labels on the bars
         for bar in bars:
-            plt.text(bar.get_width() + 0.01, bar.get_y() + bar.get_height()/2, 
-                     f'{bar.get_width():.3f}', va='center')
+            w = bar.get_width()
+            plt.text(w+0.01, bar.get_y()+bar.get_height()/2,
+                    f'{w:.3f}', va='center')
 
-        plt.gca().invert_yaxis() # Put highest R2 at the top
-        plt.tight_layout() # Adjust layout to prevent labels overlapping
-        
-        plot_filename = "all_descriptors_r2_scores_plot.png"
+        plt.gca().invert_yaxis()
+        plt.tight_layout()
+
+        plot_filename = "lightgbm_r2_hld.png"
         plt.savefig(plot_filename)
-        print(f"\nVisualization saved as '{plot_filename}'")
-        # plt.show() # Uncomment this line if you want the plot to pop up immediately
+        print(f"\nGrouped visualization saved as '{plot_filename}'")
 
     print("\n--- Program Finished ---")
